@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { Calendar, CheckCircle2, Clock } from 'lucide-react';
 
 import { getDictionary } from '@/lib/i18n/get-dictionary';
+import { API_SERVER_BASE_URL } from '@/lib/api/base-url';
 
 import { CATEGORY_STYLES, toPascalCase } from '@/components/updates/announcement-list';
 import { Alert, Container, PageHeader } from '@/components/ui/primitives';
@@ -119,7 +120,7 @@ export default async function AnnouncementPage({ params }) {
 async function loadAnnouncement(slug, locale) {
   try {
     const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_BASE_URL}/announcements/${encodeURIComponent(slug)}?locale=${encodeURIComponent(locale)}`,
+      `${API_SERVER_BASE_URL}/announcements/${encodeURIComponent(slug)}?locale=${encodeURIComponent(locale)}`,
       { next: { revalidate: 300 }, signal: AbortSignal.timeout(5000) },
     );
 

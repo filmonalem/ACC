@@ -1,0 +1,163 @@
+name: CI
+
+# Runs what was verified by hand when this project was first brought up: the
+# backend typecheck/build/unit suites, the frontend build, and — because it is
+# cheap and catches the class of defect that review cannot — the frontend
+# dictionary-completeness tests.
+#
+# The database-backed suites (integration, e2e) are run too, against a real
+# PostgreSQL service container. They are not optional: the two defects that
+# mattered most here, a suite that emptied a development database and a suite
+# that passed while every query 500'd, were both invisible without them.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend — typecheck, build, unit, integration, e2e
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          # The e2e fixtures sign in as these accounts; see test/test-fixtures.ts.
+          POSTGRES_USER: acc
+          POSTGRES_PASSWORD: acc_test_password
+          POSTGRES_DB: acc_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://acc:acc_test_password@localhost:5432/acc_test?schema=public
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install
+        working-directory: backend
+        run: npm ci
+
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npm run db:generate
+
+      # Migrations and seed must land before any suite runs. `acc_test` is
+      # disposable and created by the service container above; the guard in
+      # test/database-safety.ts is satisfied because the name contains "test".
+      - name: Migrate and seed
+        working-directory: backend
+        run: |
+          npm run db:deploy
+          npm run db:seed
+
+      - name: Typecheck
+        working-directory: backend
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: backend
+        run: npm run build
+
+      - name: Unit tests
+        working-directory: backend
+        run: npm run test:unit
+
+      - name: Integration tests
+        working-directory: backend
+        run: npm run test:integration
+
+      - name: End-to-end tests
+        working-directory: backend
+        run: npm run test:e2e
+
+  frontend:
+    name: Frontend — build and i18n completeness
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: frontend
+        env:
+          # Proxy mode, exactly as a Vercel deployment runs. API_ORIGIN points
+          # nowhere: the build must not require a reachable backend, and the
+          # pages degrade to empty on a failed fetch by design.
+          NEXT_PUBLIC_API_BASE_URL: /api/v1
+          API_ORIGIN: https://api.invalid
+        run: npm run build
+
+      # The dictionary tests are what caught the Tigrinya key drift, where a
+      # reader was shown `undefined` mid-sentence. They are cheap and they are
+      # the only thing standing between a renamed key and a broken page.
+      - name: Dictionary completeness
+        working-directory: frontend
+        run: npm test
+
+  deploy-config:
+    name: Deployment config — fail fast on a misconfigured proxy
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+
+      # Vercel refuses to build when API_ORIGIN is missing and the public base
+      # URL is relative, because every server-rendered page would silently come
+      # back empty. Reproduced here so the failure surfaces on a pull request
+      # rather than on the deployment.
+      - name: Build must fail without API_ORIGIN
+        working-directory: frontend
+        env:
+          VERCEL: '1'
+          NEXT_PUBLIC_API_BASE_URL: /api/v1
+        run: |
+          if npm run build > /tmp/build.log 2>&1; then
+            echo "::error::Expected the build to fail when API_ORIGIN is unset on Vercel."
+            exit 1
+          fi
+          grep -q "API_ORIGIN is not set" /tmp/build.log \
+            || { echo "::error::Build failed, but not for the expected reason."; tail -40 /tmp/build.log; exit 1; }
+          echo "Build correctly refused to start without API_ORIGIN."

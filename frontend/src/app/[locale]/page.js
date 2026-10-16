@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 
 import { EmergencyFooterNote, PrivacyReassurance } from '@/components/layout/emergency-notice';
+import { API_SERVER_BASE_URL } from '@/lib/api/base-url';
 
 /**
  * Homepage.
@@ -245,7 +246,7 @@ async function HomepageAnnouncements({ locale, dict }) {
 
   try {
     const payload = await fetch(
-      `${process.env.NEXT_PUBLIC_API_BASE_URL}/announcements?locale=${locale}&pageSize=3`,
+      `${API_SERVER_BASE_URL}/announcements?locale=${locale}&pageSize=3`,
       { next: { revalidate: 300 }, signal: AbortSignal.timeout(4000) },
     );
     if (payload.ok) {
@@ -315,7 +316,7 @@ async function HomepageContacts({ locale, dict }) {
 
   try {
     const payload = await fetch(
-      `${process.env.NEXT_PUBLIC_API_BASE_URL}/contacts?locale=${locale}`,
+      `${API_SERVER_BASE_URL}/contacts?locale=${locale}`,
       { next: { revalidate: 300 }, signal: AbortSignal.timeout(4000) },
     );
     if (payload.ok) {

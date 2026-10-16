@@ -1,6 +1,7 @@
 import { Clock, Mail, MapPin, Phone, UserCheck } from 'lucide-react';
 
 import { getDictionary } from '@/lib/i18n/get-dictionary';
+import { API_SERVER_BASE_URL } from '@/lib/api/base-url';
 
 import { Container, EmptyState, PageHeader } from '@/components/ui/primitives';
 
@@ -121,7 +122,7 @@ export default async function SupportPage({ params }) {
 async function loadServices(locale) {
   try {
     const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_BASE_URL}/support-services?locale=${encodeURIComponent(locale)}`,
+      `${API_SERVER_BASE_URL}/support-services?locale=${encodeURIComponent(locale)}`,
       { next: { revalidate: 600 }, signal: AbortSignal.timeout(5000) },
     );
 

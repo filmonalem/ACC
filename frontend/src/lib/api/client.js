@@ -19,8 +19,9 @@
  * see `submitReport`, which relies on the idempotency key rather than on hope.
  */
 
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, '') ?? 'http://localhost:4000/api/v1';
+import { API_BASE_URL } from './base-url';
+
+export { API_BASE_URL };
 
 export class ApiError extends Error {
   constructor(message, { status, code, requestId, details } = {}) {

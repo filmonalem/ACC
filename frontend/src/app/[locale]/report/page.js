@@ -1,4 +1,5 @@
 import { getDictionary } from '@/lib/i18n/get-dictionary';
+import { API_SERVER_BASE_URL } from '@/lib/api/base-url';
 
 import { ReportWizard } from '@/components/report/report-wizard';
 import { Container, PageHeader } from '@/components/ui/primitives';
@@ -74,7 +75,7 @@ async function loadCategories(locale) {
     // CDNs, and a resident reading in Tigrinya must not silently receive English
     // category names because of it.
     const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_BASE_URL}/report-categories?locale=${encodeURIComponent(locale)}`,
+      `${API_SERVER_BASE_URL}/report-categories?locale=${encodeURIComponent(locale)}`,
       {
         cache: 'no-store',
         signal: AbortSignal.timeout(5000),

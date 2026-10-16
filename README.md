@@ -31,7 +31,7 @@ automation is not written.**
 | --- | --- |
 | Backend (NestJS + TypeScript + Prisma + PostgreSQL) | working, 140 tests passing (91 unit, 2 integration, 47 e2e) |
 | Frontend (Next.js 15, App Router) | working, 34 tests passing |
-| Docker / deployment / backup automation | **not written** |
+| Docker / deployment / backup automation | runbook written, **never executed**; no backups, no monitoring |
 | Documentation | architecture, data model, status, setup |
 
 Read [`docs/03-milestones.md`](docs/03-milestones.md) before anything else. It
@@ -46,6 +46,7 @@ running this code for the first time.
 | [`docs/02-database.md`](docs/02-database.md) | Data model and the reasoning behind it |
 | [`docs/03-milestones.md`](docs/03-milestones.md) | **Verified** status, known defects, recommended next steps |
 | [`docs/04-setup.md`](docs/04-setup.md) | Reproducing the development environment on Linux |
+| [`docs/05-deployment.md`](docs/05-deployment.md) | **Deployment topology, environment variables, verification, operations** — unproven against a real deployment |
 
 ## Quick start
 

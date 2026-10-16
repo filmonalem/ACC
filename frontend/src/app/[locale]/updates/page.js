@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 
 import { getDictionary } from '@/lib/i18n/get-dictionary';
+import { API_SERVER_BASE_URL } from '@/lib/api/base-url';
 
 import { AnnouncementList } from '@/components/updates/announcement-list';
 import { Container, PageHeader } from '@/components/ui/primitives';
@@ -52,7 +53,7 @@ export default async function UpdatesPage({ params }) {
 async function loadAnnouncements(locale) {
   try {
     const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_BASE_URL}/announcements?locale=${encodeURIComponent(locale)}&pageSize=20`,
+      `${API_SERVER_BASE_URL}/announcements?locale=${encodeURIComponent(locale)}&pageSize=20`,
       { next: { revalidate: 300 }, signal: AbortSignal.timeout(5000) },
     );
 

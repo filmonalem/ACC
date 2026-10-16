@@ -1,4 +1,5 @@
 import { getDictionary } from '@/lib/i18n/get-dictionary';
+import { API_SERVER_BASE_URL } from '@/lib/api/base-url';
 
 import { ContactDirectory } from '@/components/contacts/contact-directory';
 import { Container, PageHeader } from '@/components/ui/primitives';
@@ -43,7 +44,7 @@ export default async function ContactsPage({ params }) {
 async function loadContacts(locale) {
   try {
     const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_BASE_URL}/contacts?locale=${encodeURIComponent(locale)}`,
+      `${API_SERVER_BASE_URL}/contacts?locale=${encodeURIComponent(locale)}`,
       { next: { revalidate: 300 }, signal: AbortSignal.timeout(5000) },
     );
 
