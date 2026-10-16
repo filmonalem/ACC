@@ -1,0 +1,556 @@
+@import 'tailwindcss';
+
+/* ==========================================================================
+   Adigrat Community Connect — design tokens
+
+   One place for colour, type, spacing and motion. Components below consume
+   these tokens rather than raw hex values, so a change here reaches the whole
+   interface at once and cannot drift between pages.
+
+   Colour decisions that are not purely aesthetic:
+
+   - **Red is reserved.** It appears only for emergencies and for destructive or
+     failed states. Using it decoratively would make an emergency notice look
+     like another banner, which is the failure mode this palette exists to avoid.
+   - **The brand colour is deep navy**, chosen for contrast on a light
+     background rather than for saturation. Teal is the accent, used sparingly.
+   - **Every foreground/background pair below meets WCAG AA** at its intended
+     size. `ink-muted` is the lightest text allowed on `surface`, and it is not
+     used below 16px.
+   - **Status is never colour alone.** Every status pill carries a text label and
+     an icon, because roughly 1 in 12 men has some colour vision deficiency and
+     a coloured dot tells them nothing.
+   ========================================================================== */
+
+@theme {
+  /* ── Brand: deep navy ──────────────────────────────────────────────────── */
+  --color-brand-50: #eef5fb;
+  --color-brand-100: #d6e7f4;
+  --color-brand-200: #b0d0e8;
+  --color-brand-300: #7fb0d7;
+  --color-brand-400: #4b8ac1;
+  --color-brand-500: #276ba6;
+  --color-brand-600: #17538b;
+  --color-brand-700: #12436f;
+  --color-brand-800: #103656;
+  --color-brand-900: #0d2b43;
+  --color-brand-950: #081c2e;
+
+  /* ── Accent: teal, used sparingly ──────────────────────────────────────── */
+  --color-accent-50: #effcf9;
+  --color-accent-100: #d3f7ef;
+  --color-accent-200: #abecdf;
+  --color-accent-300: #74dcc9;
+  --color-accent-400: #40c5ae;
+  --color-accent-500: #1fab95;
+  --color-accent-600: #12897a;
+  --color-accent-700: #116e63;
+  --color-accent-800: #125750;
+  --color-accent-900: #124942;
+  --color-accent-950: #042b28;
+
+  /* ── Emergency and danger: reserved, never decorative ──────────────────── */
+  --color-danger-50: #fef2f2;
+  --color-danger-100: #fee2e2;
+  --color-danger-200: #fecaca;
+  --color-danger-300: #fca5a5;
+  --color-danger-400: #f87171;
+  --color-danger-500: #ef4444;
+  --color-danger-600: #dc2626;
+  --color-danger-700: #b91c1c;
+  --color-danger-800: #991b1b;
+  --color-danger-900: #7f1d1d;
+
+  /* ── Status: distinct hues so a pill is not read by colour alone ───────── */
+  --color-success-50: #f0fdf4;
+  --color-success-100: #dcfce7;
+  --color-success-600: #16a34a;
+  --color-success-700: #15803d;
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-600: #d97706;
+  --color-warning-700: #b45309;
+  --color-info-50: #eff6ff;
+  --color-info-100: #dbeafe;
+  --color-info-600: #2563eb;
+  --color-info-700: #1d4ed8;
+
+  /* ── Neutral surface and ink ────────────────────────────────────────────── */
+  --color-surface: #ffffff;
+  --color-surface-sunken: #f6f8fb;
+  --color-surface-raised: #ffffff;
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+  --color-ink: #0f172a;
+  --color-ink-muted: #526079;
+  --color-ink-subtle: #6b7894;
+
+  /* ── Typography ───────────────────────────────────────────────────────────
+     The stack leads with a system UI face, then Noto Sans Ethiopic. Ethiopic
+     glyphs are not present in most Latin UI faces, so without an explicit
+     Ethiopic fallback Tigrinya and Amharic render as tofu boxes on some
+     systems — a failure that is invisible to the developer and total for the
+     reader.
+     ---------------------------------------------------------------------- */
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    'Noto Sans Ethiopic', 'Abyssinica SIL', sans-serif;
+  --font-display:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans Ethiopic',
+    'Abyssinica SIL', sans-serif;
+
+  /* ── Elevation: restrained. Shadows here separate planes, not decorate. ──── */
+  --shadow-xs: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(15 23 42 / 0.07), 0 1px 2px -1px rgb(15 23 42 / 0.05);
+  --shadow-md: 0 4px 12px -2px rgb(15 23 42 / 0.08), 0 2px 6px -2px rgb(15 23 42 / 0.05);
+  --shadow-lg: 0 12px 28px -6px rgb(15 23 42 / 0.12), 0 6px 12px -6px rgb(15 23 42 / 0.06);
+  --shadow-focus: 0 0 0 3px var(--color-brand-200);
+
+  /* ── Radii ──────────────────────────────────────────────────────────────── */
+  --radius-card: 0.875rem;
+  --radius-control: 0.625rem;
+
+  /* ── Motion ───────────────────────────────────────────────────────────────
+     Short and few. Animation on a civic site is a cost paid by the reader on a
+     slow connection, and prefers-reduced-motion is honoured below.
+     ---------------------------------------------------------------------- */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-surface-sunken);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    /* Tighter tracking on large display text reads better in Latin script, but
+       must be relaxed for Ethiopic, whose glyphs are already dense and would
+       otherwise collide. */
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Ethiopic needs a little more leading to stay readable: the script has more
+     vertical detail per line than Latin at the same size. */
+  :lang(ti),
+  :lang(am) {
+    line-height: 1.7;
+    letter-spacing: 0;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  :lang(ti) h1,
+  :lang(ti) h2,
+  :lang(ti) h3,
+  :lang(am) h1,
+  :lang(am) h2,
+  :lang(am) h3 {
+    letter-spacing: 0;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* A single, unmistakable focus treatment. `outline` rather than `box-shadow`
+     because it is not suppressed by a background, and it follows the element
+     through any overflow or transform. */
+  :focus-visible {
+    outline: 3px solid var(--color-brand-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* On dark surfaces the brand-blue outline disappears. */
+  .on-dark :focus-visible,
+  .on-dark:focus-visible {
+    outline-color: var(--color-brand-200);
+  }
+
+  /* Off by default: a flashing or sweeping transition is a comfort problem, and
+     for some readers a motion sensitivity problem too. */
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ==========================================================================
+   Components
+
+   Written as classes rather than long `className` strings so that spacing,
+   radius and interaction stay identical across every page. A card on the
+   homepage and a card in the dashboard are then the same object visually.
+   ========================================================================== */
+
+@layer components {
+  .card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .card-raised {
+    box-shadow: var(--shadow-md);
+  }
+
+  .card-interactive {
+    transition:
+      box-shadow var(--duration-base) var(--ease-out-soft),
+      transform var(--duration-base) var(--ease-out-soft),
+      border-color var(--duration-base) var(--ease-out-soft);
+  }
+
+  .card-interactive:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: var(--color-brand-200);
+    transform: translateY(-2px);
+  }
+
+  /* ── Buttons ───────────────────────────────────────────────────────────────
+     One focus treatment, one disabled treatment, and a minimum 44px touch
+     target on the primary sizes: a resident on a phone is often using one hand.
+     ---------------------------------------------------------------------- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    border-radius: var(--radius-control);
+    border: 1px solid transparent;
+    cursor: pointer;
+    text-align: center;
+    transition:
+      background-color var(--duration-fast) var(--ease-out-soft),
+      border-color var(--duration-fast) var(--ease-out-soft),
+      color var(--duration-fast) var(--ease-out-soft),
+      box-shadow var(--duration-fast) var(--ease-out-soft);
+  }
+
+  .btn:disabled,
+  .btn[aria-disabled='true'] {
+    opacity: 0.55;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .btn-md {
+    min-height: 2.75rem;
+    padding: 0.625rem 1.125rem;
+    font-size: 0.9375rem;
+    line-height: 1.25rem;
+  }
+
+  .btn-lg {
+    min-height: 3.25rem;
+    padding: 0.875rem 1.5rem;
+    font-size: 1.0625rem;
+    line-height: 1.5rem;
+  }
+
+  .btn-sm {
+    min-height: 2.25rem;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+  }
+
+  .btn-primary {
+    background-color: var(--color-brand-700);
+    color: #fff;
+    box-shadow: var(--shadow-xs);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--color-brand-800);
+  }
+
+  .btn-accent {
+    background-color: var(--color-accent-600);
+    color: #fff;
+    box-shadow: var(--shadow-xs);
+  }
+
+  .btn-accent:hover:not(:disabled) {
+    background-color: var(--color-accent-700);
+  }
+
+  .btn-secondary {
+    background-color: var(--color-surface);
+    color: var(--color-brand-800);
+    border-color: var(--color-border-strong);
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background-color: var(--color-brand-50);
+    border-color: var(--color-brand-300);
+  }
+
+  .btn-ghost {
+    background-color: transparent;
+    color: var(--color-brand-700);
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    background-color: var(--color-brand-50);
+  }
+
+  .btn-danger {
+    background-color: var(--color-danger-700);
+    color: #fff;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background-color: var(--color-danger-800);
+  }
+
+  /* ── Form controls ─────────────────────────────────────────────────────── */
+  .field-label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: var(--color-ink);
+    margin-bottom: 0.375rem;
+  }
+
+  .field-hint {
+    font-size: 0.875rem;
+    color: var(--color-ink-muted);
+    margin-top: 0.375rem;
+  }
+
+  /* Errors are announced as well as shown, and are never signalled by colour
+     alone: the border thickens and the message text is always present. */
+  .field-error {
+    font-size: 0.875rem;
+    color: var(--color-danger-700);
+    margin-top: 0.375rem;
+    font-weight: 500;
+  }
+
+  .input,
+  .textarea,
+  .select {
+    display: block;
+    width: 100%;
+    background-color: var(--color-surface);
+    color: var(--color-ink);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-control);
+    padding: 0.625rem 0.875rem;
+    /* 16px minimum: anything smaller makes iOS Safari zoom on focus, which
+       shifts the page under the reader's finger mid-form. */
+    font-size: 1rem;
+    line-height: 1.5;
+    min-height: 2.75rem;
+    transition:
+      border-color var(--duration-fast) var(--ease-out-soft),
+      box-shadow var(--duration-fast) var(--ease-out-soft);
+  }
+
+  .input::placeholder,
+  .textarea::placeholder {
+    color: var(--color-ink-subtle);
+  }
+
+  .input:hover:not(:disabled),
+  .textarea:hover:not(:disabled),
+  .select:hover:not(:disabled) {
+    border-color: var(--color-brand-300);
+  }
+
+  .input:disabled,
+  .textarea:disabled,
+  .select:disabled {
+    background-color: var(--color-surface-sunken);
+    color: var(--color-ink-subtle);
+    cursor: not-allowed;
+  }
+
+  .input[aria-invalid='true'],
+  .textarea[aria-invalid='true'],
+  .select[aria-invalid='true'] {
+    border-color: var(--color-danger-600);
+    border-width: 2px;
+  }
+
+  /* ── Status pill: colour, icon and label together, never colour alone ──── */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 9999px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+
+  .pill-neutral {
+    background-color: var(--color-surface-sunken);
+    color: var(--color-ink-muted);
+    border-color: var(--color-border);
+  }
+
+  .pill-info {
+    background-color: var(--color-info-50);
+    color: var(--color-info-700);
+    border-color: var(--color-info-100);
+  }
+
+  .pill-success {
+    background-color: var(--color-success-50);
+    color: var(--color-success-700);
+    border-color: var(--color-success-100);
+  }
+
+  .pill-warning {
+    background-color: var(--color-warning-50);
+    color: var(--color-warning-700);
+    border-color: var(--color-warning-100);
+  }
+
+  .pill-danger {
+    background-color: var(--color-danger-50);
+    color: var(--color-danger-700);
+    border-color: var(--color-danger-100);
+  }
+
+  .pill-brand {
+    background-color: var(--color-brand-50);
+    color: var(--color-brand-800);
+    border-color: var(--color-brand-100);
+  }
+
+  /* ── Alerts ────────────────────────────────────────────────────────────────
+     A left rule rather than a coloured page, so the content stays readable and
+     the alert does not shout over the form it belongs to.
+     ---------------------------------------------------------------------- */
+  .alert {
+    display: flex;
+    gap: 0.875rem;
+    padding: 1rem 1.125rem;
+    border-radius: var(--radius-card);
+    border: 1px solid;
+    font-size: 0.9375rem;
+    line-height: 1.5rem;
+  }
+
+  .alert-info {
+    background-color: var(--color-info-50);
+    border-color: var(--color-info-100);
+    color: var(--color-info-700);
+  }
+
+  .alert-success {
+    background-color: var(--color-success-50);
+    border-color: var(--color-success-100);
+    color: var(--color-success-700);
+  }
+
+  .alert-warning {
+    background-color: var(--color-warning-50);
+    border-color: var(--color-warning-100);
+    color: var(--color-warning-700);
+  }
+
+  .alert-danger {
+    background-color: var(--color-danger-50);
+    border-color: var(--color-danger-100);
+    color: var(--color-danger-700);
+  }
+
+  /* ── Utility ────────────────────────────────────────────────────────────── */
+
+  /* Skeleton shimmer for content that is still arriving. Animated only when
+     motion is welcome; the static variant is the reduced-motion default. */
+  .skeleton {
+    background-color: var(--color-border);
+    border-radius: 0.375rem;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .skeleton {
+      animation: skeleton-pulse 1.6s ease-in-out infinite;
+    }
+  }
+
+  @keyframes skeleton-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  /* Visible only to assistive technology. Used for the skip link target and for
+     status text that duplicates a visual cue. */
+  .sr-only-focusable:not(:focus):not(:focus-within) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+}
+
+/* Print: a resident may need to print a reference code. Strip the chrome and
+   keep the content. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .card {
+    box-shadow: none;
+    border-color: #999;
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "Adigrat Community Connect",
+  "short_name": "ACC",
+  "description": "Report a community concern, check verified service contacts, and read approved public announcements.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f8fb",
+  "theme_color": "#12436f",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["government", "utilities", "social"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

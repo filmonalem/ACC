@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Adigrat Community Connect">
+  <rect width="64" height="64" rx="14" fill="#12436f"/>
+  <path d="M32 14c-6.6 0-12 5.4-12 12 0 9 12 24 12 24s12-15 12-24c0-6.6-5.4-12-12-12Z" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linejoin="round"/>
+  <circle cx="32" cy="26" r="4.6" fill="none" stroke="#ffffff" stroke-width="3.5"/>
+</svg>

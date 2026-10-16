@@ -1,0 +1,1031 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Adigrat Community Connect (ACC) — database schema
+//
+// SEPARATION OF CONCERNS THAT MATTERS HERE
+//   Report                    narrative + workflow metadata, no resident PII
+//   ReportReporterIdentity    who submitted it      -> own permission + audit
+//   ReportLocation            where it happened    -> own permission, coarser default
+// A staff member reading the report queue does not implicitly read resident
+// identity. That separation is the single most important privacy decision in
+// this schema.
+//
+// STATUS AXES ARE DELIBERATELY SEPARATE
+//   status / urgency / verificationStatus / escalationState / assignment
+// A high-urgency report is not a verified report. Merging them would let
+// pressure substitute for evidence, which is exactly the failure mode this
+// platform exists to avoid.
+//
+// TIME
+//   All timestamps are timestamptz (UTC). Rendering happens at the edge.
+//
+// IDS
+//   uuid v4 for every primary key. Public codes are separate, non-sequential,
+//   high-entropy strings (`referenceCode`), never a database id.
+//
+// DELETION
+//   Reports, contacts, announcements, users and notes are soft-deleted, then
+//   purged by the retention job. History and audit rows use SetNull so a trail
+//   survives the deletion of the thing it describes.
+//
+// NOT COLLECTED, BY DESIGN
+//   National ID, date of birth, gender, ethnicity, disability status, precise
+//   coordinates by default. None of these are needed to act on a report.
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// Prisma 7 takes the connection URL from prisma.config.ts, not from here. The
+// runtime client is constructed with an explicit driver adapter — see
+// src/database/prisma.service.ts.
+datasource db {
+  provider = "postgresql"
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Enums
+// ═════════════════════════════════════════════════════════════════════════════
+
+enum RoleKey {
+  RESIDENT
+  TRIAGE_OFFICER
+  SERVICE_OFFICER
+  CONTENT_EDITOR
+  SUPERVISOR
+  SYSTEM_ADMIN
+}
+
+enum UserStatus {
+  PENDING_INVITE
+  ACTIVE
+  DISABLED
+  LOCKED
+}
+
+enum ReportStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  VERIFIED
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  REJECTED
+  DUPLICATE
+}
+
+enum Urgency {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+/// Truth axis. `UNVERIFIED` is the default and is never silently upgraded by
+/// urgency, by volume, or by an unverified allegation.
+enum VerificationStatus {
+  UNVERIFIED
+  VERIFIED
+  DISPUTED
+  REJECTED
+}
+
+/// Never implies a connection to police, ambulance, or any external dispatch
+/// system. ACC has no such integration; `ESCALATED_INTERNAL` means "notified
+/// designated review personnel inside ACC".
+enum EscalationState {
+  NONE
+  REVIEW_PENDING
+  ESCALATED_INTERNAL
+  ESCALATION_CLOSED
+}
+
+enum IncidentTimePrecision {
+  EXACT
+  DATE_ONLY
+  APPROXIMATE
+  UNKNOWN
+}
+
+enum LocationPrecision {
+  KEBELE
+  WOREDA
+  SUB_CITY
+  LANDMARK_DESCRIPTION
+  PRECISE
+}
+
+enum ContactMethod {
+  PHONE
+  SMS
+  EMAIL
+  NONE
+}
+
+enum NoteVisibility {
+  INTERNAL
+}
+
+enum AttachmentScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  ERROR
+  /// Local development only. Never produced when malware scanning is enabled.
+  SKIPPED_DEV
+}
+
+enum ServiceCategory {
+  EMERGENCY
+  POLICE
+  HEALTH
+  FIRE
+  UTILITY
+  TRANSPORT
+  COMMUNITY
+  GOVERNMENT_OFFICE
+  OTHER
+}
+
+enum ContactStatus {
+  DRAFT
+  VERIFIED
+  SUSPENDED
+  EXPIRED
+}
+
+enum ContactVerificationOutcome {
+  CONFIRMED
+  UNREACHABLE
+  INCORRECT
+  EXPIRED
+  WITHDRAWN_BY_PROVIDER
+}
+
+enum VerificationMethod {
+  PHONE_CALL
+  SMS_CONFIRMATION
+  EMAIL_CONFIRMATION
+  OFFICIAL_LETTER
+  SITE_VISIT
+  IN_PERSON_CONFIRMATION
+}
+
+enum AnnouncementStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  EXPIRED
+  ARCHIVED
+}
+
+enum AnnouncementCategory {
+  PUBLIC_SAFETY
+  SERVICE_NOTICE
+  HEALTH_ADVISORY
+  INFRASTRUCTURE
+  COMMUNITY
+  OTHER
+}
+
+enum SupportServiceCategory {
+  COMMUNITY_ASSISTANCE
+  HEALTH
+  SOCIAL_SUPPORT
+  DISABILITY_SUPPORT
+  PUBLIC_INFORMATION
+}
+
+enum ServiceVerificationStatus {
+  PENDING
+  VERIFIED
+  EXPIRED
+  WITHDRAWN
+}
+
+enum NotificationChannel {
+  SMS
+  EMAIL
+  IN_APP
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum ConsentType {
+  PERSONAL_DATA_PROCESSING
+  CONTACT_ATTEMPTS
+  RETENTION_EXTENSION
+  MARKETING
+}
+
+enum PrivacyRequestType {
+  ACCESS
+  CORRECTION
+  DELETION
+  OBJECTION
+  /// Legal hold: pins related rows so retention cannot purge them.
+  RESTRICTION
+}
+
+enum PrivacyRequestStatus {
+  RECEIVED
+  IDENTITY_VERIFIED
+  IN_PROGRESS
+  FULFILLED
+  REJECTED
+}
+
+enum AuditOutcome {
+  SUCCESS
+  DENIED
+  FAILURE
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Identity, access control, organizations
+// ═════════════════════════════════════════════════════════════════════════════
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique
+  passwordHash String?
+  fullName     String
+  phone        String?
+  preferredLocale String  @default("en")
+  timezone     String     @default("Africa/Addis_Ababa")
+  status       UserStatus @default(PENDING_INVITE)
+  mfaEnabled   Boolean    @default(false)
+  /// AES-256-GCM envelope. Never returned by any endpoint.
+  mfaSecretEncrypted String?
+  /// Argon2 hashes of single-use recovery codes.
+  mfaRecoveryCodeHashes String[]
+  failedLoginCount Int    @default(0)
+  lockedUntil  DateTime?
+  lastLoginAt  DateTime?
+  /// Invalidate every outstanding session without changing the password.
+  sessionsInvalidatedAt DateTime?
+  mustChangePassword Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  memberships  OrganizationMembership[]
+  roles        UserRole[]
+  refreshTokens RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  auditLogs    AuditLog[]
+
+  assignmentsGiven   ReportAssignment[] @relation("AssignmentGivenBy")
+  assignmentsCurrent ReportAssignment[] @relation("AssignmentAssignee")
+  statusChanges      ReportStatusHistory[] @relation("StatusChangedBy")
+  notes              ReportNote[] @relation("NoteAuthor")
+  verifications      ContactVerification[] @relation("ContactVerifiedBy")
+  verificationsRevoked ContactVerification[] @relation("ContactVerificationRevokedBy")
+  announcementsAuthored Announcement[] @relation("AnnouncementAuthor")
+  announcementsApproved Announcement[] @relation("AnnouncementApprover")
+  privacyRequestsHandled PrivacyRequest[] @relation("PrivacyRequestHandler")
+  privacyRequests      PrivacyRequest[] @relation("PrivacyRequestSubject")
+  consentRecords       ConsentRecord[] @relation("ConsentSubject")
+  uploads             ReportAttachment[] @relation("AttachmentUploadedBy")
+  notifications       Notification[]
+
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model RefreshToken {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  /// SHA-256 of the token. The plaintext lives only in the cookie.
+  tokenHash    String    @unique @db.Char(64)
+  /// Rotation family: presenting an already-used token revokes the family.
+  familyId     String    @db.Uuid
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  revokedReason String?
+  replacedById String?   @db.Uuid
+  /// Hashed, not raw: user agent is personal data too.
+  userAgentHash String?
+  ipHash       String?
+  createdAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique @db.Char(64)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+/// Permission codes are the PK, seeded from `src/common/permissions.ts` which
+/// is the single source of truth for the code list.
+model Permission {
+  code        String   @id
+  description String
+  /// Coarse grouping used by the admin UI: reports, contacts, …
+  category    String
+  createdAt   DateTime @default(now())
+
+  roles RolePermission[]
+}
+
+model Role {
+  id          String  @id @default(uuid()) @db.Uuid
+  key         RoleKey @unique
+  name        String
+  description String
+  /// System roles are seeded and cannot be deleted or have their key changed.
+  isSystem    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@index([key])
+}
+
+model RolePermission {
+  roleId        String @db.Uuid
+  permissionCode String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionCode], references: [code], onDelete: Restrict)
+
+  @@id([roleId, permissionCode])
+  @@index([permissionCode])
+}
+
+/// A role grant, optionally scoped to one organization. A grant without
+/// `organizationId` applies across all organizations the user can reach.
+///
+/// `organizationId` is nullable, which means it cannot be part of the primary
+/// key (Prisma requires only required fields in an id), so the row has a
+/// surrogate `id`. Uniqueness is enforced by two PARTIAL unique indexes added in
+/// the init migration, because in PostgreSQL NULLs are distinct inside a plain
+/// unique index — a plain `@@unique([userId, roleId, organizationId])` would
+/// happily accept two global grants for the same user and role.
+///
+///   CREATE UNIQUE INDEX userrole_global_uniq
+///     ON "UserRole" (userId, roleId) WHERE organizationId IS NULL;
+///   CREATE UNIQUE INDEX userrole_org_uniq
+///     ON "UserRole" (userId, roleId, organizationId) WHERE organizationId IS NOT NULL;
+model UserRole {
+  id             String  @id @default(uuid()) @db.Uuid
+  userId         String  @db.Uuid
+  roleId         String  @db.Uuid
+  organizationId String? @db.Uuid
+  grantedById    String? @db.Uuid
+  grantedAt      DateTime @default(now())
+  expiresAt      DateTime?
+
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role          @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([roleId])
+  @@index([organizationId])
+}
+
+model Organization {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String  @unique
+  description String?
+  /// Contact details shown publicly only once a listing is verified; the
+  /// Organization row itself is never a public endpoint in v0.1.
+  contactEmail String?
+  contactPhone String?
+  /// `false` until a governance administrator approves the organization.
+  /// Unapproved organizations cannot be referenced by a published contact,
+  /// announcement, or support service.
+  isApproved  Boolean @default(false)
+  approvedById String? @db.Uuid
+  approvedAt DateTime?
+  isActive   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  memberships        OrganizationMembership[]
+  serviceContacts    ServiceContact[]
+  supportServices    SupportService[]
+  announcements      Announcement[]
+  grants             UserRole[]
+
+  @@index([isApproved, isActive])
+}
+
+model OrganizationMembership {
+  userId         String  @db.Uuid
+  organizationId String  @db.Uuid
+  /// Free-text note describing what this person does for the organization.
+  title          String?
+  isPrimary      Boolean @default(false)
+  joinedAt       DateTime @default(now())
+  leftAt         DateTime?
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([userId, organizationId])
+  @@index([organizationId, leftAt])
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Reports
+// ═════════════════════════════════════════════════════════════════════════════
+
+model ReportCategory {
+  id            String   @id @default(uuid()) @db.Uuid
+  /// Stable machine key, e.g. `public_safety`.
+  key           String   @unique
+  /// JSON object of locale -> label. Configurable, seeded with ti/am/en.
+  labelI18n     Json
+  descriptionI18n Json?
+  icon          String?
+  sortOrder     Int      @default(0)
+  isActive      Boolean  @default(true)
+  /// Category requires staff review before any public mention.
+  requiresUrgentReview Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  reports Report[]
+
+  @@index([isActive, sortOrder])
+}
+
+model Report {
+  id             String  @id @default(uuid()) @db.Uuid
+  /// Human-facing code shown to the resident: `ACC-7F3K9Q2M`.
+  referenceCode  String  @unique @db.VarChar(24)
+  /// SHA-256 of the one-time status token issued at submission. Status lookups
+  /// require BOTH referenceCode and the token, so codes cannot be enumerated.
+  statusTokenHash String @unique @db.Char(64)
+
+  categoryId     String  @db.Uuid
+  description    String  @db.Text
+  /// Resident's preferred language for any follow-up contact.
+  language       String  @default("en")
+
+  // ── independent axes ───────────────────────────────────────────────────────
+  status           ReportStatus       @default(SUBMITTED)
+  urgency          Urgency            @default(NORMAL)
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  escalationState  EscalationState    @default(NONE)
+
+  // ── resolution ────────────────────────────────────────────────────────────
+  resolutionNote  String?  @db.Text
+  resolvedAt      DateTime?
+  closedAt        DateTime?
+  rejectionReason String?  @db.Text
+
+  // ── optional incident timing ──────────────────────────────────────────────
+  incidentOccurredAt  DateTime?
+  incidentTimePrecision IncidentTimePrecision @default(UNKNOWN)
+
+  // ── privacy flags ─────────────────────────────────────────────────────────
+  isAnonymous          Boolean @default(false)
+  reporterConsentGiven Boolean @default(false)
+
+  // ── SLA / metrics ─────────────────────────────────────────────────────────
+  submittedAt     DateTime  @default(now())
+  firstReviewedAt DateTime?
+
+  duplicateOfReportId String? @db.Uuid
+  /// Local-storage idempotency key from the offline outbox. Unique so a
+  /// retried submission returns the original report instead of duplicating it.
+  idempotencyKey     String?  @unique @db.VarChar(128)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  category      ReportCategory       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  duplicateOf   Report?              @relation("ReportDuplicates", fields: [duplicateOfReportId], references: [id], onDelete: SetNull)
+  duplicates    Report[]             @relation("ReportDuplicates")
+  reporterIdentity ReportReporterIdentity?
+  location      ReportLocation?
+  assignments   ReportAssignment[]
+  statusHistory ReportStatusHistory[]
+  notes         ReportNote[]
+  attachments   ReportAttachment[]
+  consents      ConsentRecord[]
+  notifications Notification[]
+
+  @@index([status, submittedAt(sort: Desc)])
+  @@index([categoryId, status])
+  @@index([urgency, status])
+  @@index([verificationStatus, status])
+  @@index([escalationState])
+  @@index([submittedAt(sort: Desc)])
+  @@index([duplicateOfReportId])
+  @@index([deletedAt])
+}
+
+/// PII island. Reading this requires `reports.view_reporter_identity` and every
+/// read is audited. For an anonymous submission the optional columns are NULL —
+/// no masked placeholders, because a masked value is still a value.
+model ReportReporterIdentity {
+  id        String  @id @default(uuid()) @db.Uuid
+  reportId  String  @unique @db.Uuid
+  isAnonymous Boolean @default(false)
+  fullName  String?
+  phone     String?
+  email     String?
+  preferredContactMethod ContactMethod?
+  /// Free-text accessibility need, e.g. "Amharic preferred".
+  languagePreference String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+/// Location island. Coarse geography by default. Precise coordinates require
+/// `reports.submit_precise_location` to write and `reports.view_precise_location`
+/// to read. Stored as Decimal, never Float.
+model ReportLocation {
+  id        String  @id @default(uuid()) @db.Uuid
+  reportId  String  @unique @db.Uuid
+  precision LocationPrecision @default(KEBELE)
+
+  subCityName        String?
+  woredaName         String?
+  kebeleName         String?
+  landmarkDescription String?
+
+  latitude  Decimal? @db.Decimal(9, 6)
+  longitude Decimal? @db.Decimal(9, 6)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+model ReportAssignment {
+  id         String  @id @default(uuid()) @db.Uuid
+  reportId   String  @db.Uuid
+  assigneeId String  @db.Uuid
+  organizationId String? @db.Uuid
+  assignedById String @db.Uuid
+
+  /// Only one active assignment per report; history rows are retained with
+  /// `active = false`.
+  active      Boolean  @default(true)
+  assignedAt  DateTime @default(now())
+  unassignedAt DateTime?
+  unassignedById String? @db.Uuid
+  note        String?  @db.Text
+
+  report     Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  assignee   User   @relation("AssignmentAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
+  assignedBy User   @relation("AssignmentGivenBy", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  @@index([reportId, active])
+  @@index([assigneeId, active])
+  @@index([organizationId])
+}
+
+/// Append-only. No service exposes update or delete for this table.
+model ReportStatusHistory {
+  id       String @id @default(uuid()) @db.Uuid
+  reportId String @db.Uuid
+
+  fromStatus ReportStatus
+  toStatus   ReportStatus
+  urgencyBefore Urgency?
+  urgencyAfter  Urgency?
+  verificationBefore VerificationStatus?
+  verificationAfter  VerificationStatus?
+  escalationBefore EscalationState?
+  escalationAfter  EscalationState?
+
+  /// Null only for system-initiated transitions (e.g. expiry sweep).
+  changedById String? @db.Uuid
+  /// Denormalised snapshot so the trail survives account deletion.
+  changedByName String
+  reason String? @db.Text
+  requestId String? @db.VarChar(64)
+
+  createdAt DateTime @default(now())
+
+  report    Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  changedBy User?  @relation("StatusChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([reportId, createdAt(sort: Desc)])
+  @@index([toStatus, createdAt(sort: Desc)])
+  @@index([changedById])
+}
+
+/// Internal staff notes. Never exposed on any public endpoint and never
+/// included in resident status responses.
+model ReportNote {
+  id        String  @id @default(uuid()) @db.Uuid
+  reportId  String  @db.Uuid
+  authorId  String  @db.Uuid
+  body      String  @db.Text
+  visibility NoteVisibility @default(INTERNAL)
+  requestId String? @db.VarChar(64)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  author User   @relation("NoteAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([reportId, createdAt(sort: Desc)])
+  @@index([authorId])
+}
+
+model ReportAttachment {
+  id       String @id @default(uuid()) @db.Uuid
+  reportId String @db.Uuid
+  /// Opaque storage key such as `reports/<reportId>/<uuid>.jpg`. A filesystem
+  /// path is never stored and never returned.
+  objectKey String @unique @db.VarChar(512)
+  originalName String @db.VarChar(255)
+  contentType  String @db.VarChar(120)
+  byteSize     Int
+  checksumSha256 String @db.Char(64)
+  scanStatus   AttachmentScanStatus @default(PENDING)
+  scanDetail   String?
+  scannedAt    DateTime?
+  /// Null for resident uploads: the submitting user is not a staff account.
+  uploadedById String? @db.Uuid
+
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+
+  report     Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  uploadedBy User?  @relation("AttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([reportId, deletedAt])
+  @@index([scanStatus])
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Emergency contacts
+// ═════════════════════════════════════════════════════════════════════════════
+
+model ServiceContact {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String? @db.Uuid
+  name           String
+  description    String? @db.Text
+  category       ServiceCategory
+  nameI18n        Json?
+  descriptionI18n Json?
+
+  phoneNumber     String  @db.VarChar(32)
+  alternatePhone  String? @db.VarChar(32)
+  /// Normalised E.164, used for tap-to-call and de-duplication.
+  phoneE164       String? @db.VarChar(20)
+
+  coverageArea    String?
+  availabilityNotes String? @db.Text
+  alternativeInstructions String? @db.Text
+
+  isEmergency     Boolean @default(false)
+
+  status               ContactStatus @default(DRAFT)
+  isPublished          Boolean @default(false)
+  verifiedAt           DateTime?
+  verificationExpiresAt DateTime?
+  verificationCycleDays Int  @default(180)
+  nextReviewDueAt      DateTime?
+
+  sortOrder Int @default(0)
+  /// Seeded demo rows are flagged so the UI can badge them as fictional.
+  isFictionalDemo Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  organization  Organization?       @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  verifications ContactVerification[]
+
+  @@index([isPublished, status])
+  @@index([category, sortOrder])
+  @@index([verificationExpiresAt])
+  @@index([nextReviewDueAt])
+  @@index([deletedAt])
+}
+
+/// Immutable ledger of every verification attempt, successful or not.
+model ContactVerification {
+  id        String @id @default(uuid()) @db.Uuid
+  contactId String @db.Uuid
+
+  outcome    ContactVerificationOutcome
+  method     VerificationMethod
+  verifiedById String @db.Uuid
+  verifiedAt DateTime @default(now())
+  evidenceNote String? @db.Text
+  expiresAt  DateTime?
+
+  revokedAt DateTime?
+  revokedById String? @db.Uuid
+  revocationReason String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  contact    ServiceContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  verifiedBy User          @relation("ContactVerifiedBy", fields: [verifiedById], references: [id], onDelete: Restrict)
+  revokedBy  User?         @relation("ContactVerificationRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@index([contactId, verifiedAt(sort: Desc)])
+  @@index([verifiedById])
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Announcements
+// ═════════════════════════════════════════════════════════════════════════════
+
+model Announcement {
+  id             String   @id @default(uuid()) @db.Uuid
+  slug           String   @unique @db.VarChar(160)
+  category       AnnouncementCategory
+  status         AnnouncementStatus @default(DRAFT)
+  sourceName     String?
+  organizationId String?  @db.Uuid
+
+  /// Human translations live in AnnouncementTranslation; `defaultLocale` is the
+  /// locale rendered when a translation is missing.
+  defaultLocale  String   @default("en")
+
+  approvedById String?   @db.Uuid
+  approvedAt   DateTime?
+  approvalNote String?   @db.Text
+
+  publishedAt DateTime?
+  expiresAt   DateTime?
+  archivedAt  DateTime?
+
+  isPinned     Boolean  @default(false)
+  /// Seeded demo rows are badged as samples in the public UI.
+  isFictionalDemo Boolean @default(false)
+
+  createdById String   @db.Uuid
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  deletedAt  DateTime?
+
+  organization  Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  createdBy     User          @relation("AnnouncementAuthor", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy    User?         @relation("AnnouncementApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  translations  AnnouncementTranslation[]
+
+  @@index([status, publishedAt(sort: Desc)])
+  @@index([category, status])
+  @@index([expiresAt])
+  @@index([deletedAt])
+}
+
+model AnnouncementTranslation {
+  id            String @id @default(uuid()) @db.Uuid
+  announcementId String @db.Uuid
+  locale        String @db.VarChar(5)
+  title         String @db.VarChar(300)
+  summary       String? @db.VarChar(600)
+  body          String @db.Text
+  /// Set by an editor, never by a machine translation service.
+  isHumanReviewed Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, locale])
+  @@index([locale])
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Community support
+// ═════════════════════════════════════════════════════════════════════════════
+
+model SupportService {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String? @db.Uuid
+  slug           String  @unique @db.VarChar(160)
+  name           String
+  description    String  @db.Text
+  category       SupportServiceCategory
+  nameI18n        Json?
+  descriptionI18n Json?
+
+  serviceArea String?
+  eligibility String?  @db.Text
+  eligibilityI18n Json?
+
+  contactName  String?
+  phoneNumber  String?
+  phoneE164    String? @db.VarChar(20)
+  email        String?
+  websiteUrl   String?
+  hoursNotes   String? @db.Text
+
+  verificationStatus ServiceVerificationStatus @default(PENDING)
+  verifiedAt   DateTime?
+  verificationExpiresAt DateTime?
+  isPublished  Boolean @default(false)
+  isFictionalDemo Boolean @default(false)
+  sortOrder    Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([isPublished, verificationStatus])
+  @@index([category, sortOrder])
+  @@index([deletedAt])
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Notifications, consent, privacy, audit
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// Transactional outbox. A notification is written in the same transaction as
+/// the event that caused it, then delivered by a worker that calls an injected
+/// provider. In the pilot no provider is configured, so rows stay `QUEUED` and
+/// the UI states plainly that no message was sent.
+model Notification {
+  id       String @id @default(uuid()) @db.Uuid
+  reportId String? @db.Uuid
+  userId   String? @db.Uuid
+
+  channel NotificationChannel
+  template String  @db.VarChar(120)
+  /// Template key + params. Never raw recipient PII: the worker resolves the
+  /// recipient at send time from the referenced report or user.
+  payload  Json
+  locale   String  @default("en")
+
+  status      NotificationStatus @default(QUEUED)
+  attempts    Int @default(0)
+  lastError   String? @db.Text
+  providerMessageId String?
+  dedupeKey   String? @unique @db.VarChar(160)
+  scheduledFor DateTime @default(now())
+  sentAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  report Report? @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledFor])
+  @@index([reportId])
+}
+
+/// Ties a consent decision to the exact policy version the resident was shown.
+model ConsentRecord {
+  id        String  @id @default(uuid()) @db.Uuid
+  reportId  String? @db.Uuid
+  userId    String? @db.Uuid
+
+  consentType ConsentType
+  granted     Boolean
+  policyVersion String @db.VarChar(40)
+  grantedAt   DateTime @default(now())
+  revokedAt   DateTime?
+  /// Salted hash, never the raw address.
+  ipHash      String? @db.Char(64)
+
+  createdAt DateTime @default(now())
+
+  report Report? @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  user   User?   @relation("ConsentSubject", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([reportId, consentType])
+  @@index([userId])
+}
+
+model PrivacyRequest {
+  id        String  @id @default(uuid()) @db.Uuid
+  requestType PrivacyRequestType
+  status    PrivacyRequestStatus @default(RECEIVED)
+
+  /// Either a staff/data-subject account or a resident identified by reference.
+  subjectUserId String? @db.Uuid
+  reportReferenceCode String? @db.VarChar(24)
+
+  requesterName  String?
+  requesterEmail String?
+  requesterPhone String?
+  details        String  @db.Text
+
+  identityVerifiedAt DateTime?
+  verificationMethod String? @db.VarChar(120)
+
+  handledById String? @db.Uuid
+  resolutionNote String? @db.Text
+  dueAt       DateTime
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subjectUser User?  @relation("PrivacyRequestSubject", fields: [subjectUserId], references: [id], onDelete: SetNull)
+  handledBy   User?  @relation("PrivacyRequestHandler", fields: [handledById], references: [id], onDelete: SetNull)
+
+  @@index([status, dueAt])
+  @@index([subjectUserId])
+  @@index([reportReferenceCode])
+}
+
+/// Append-only. No service in the codebase updates or deletes these rows; the
+/// only writer is AuditService. DENIED rows are as important as SUCCESS rows.
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  occurredAt DateTime @default(now())
+
+  actorUserId String?  @db.Uuid
+  actorEmail  String?
+  /// Snapshot at the time of the action, so the record survives a role change.
+  actorRoles  String[]
+  organizationId String? @db.Uuid
+
+  action     String   @db.VarChar(120)
+  entityType String   @db.VarChar(80)
+  entityId   String   @db.VarChar(120)
+  outcome    AuditOutcome @default(SUCCESS)
+  /// Already redacted by AuditService before it reaches this column.
+  metadata   Json?
+  reason     String?  @db.VarChar(600)
+
+  requestId  String?  @db.VarChar(64)
+  ipAddress  String?
+  userAgent  String?
+
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([occurredAt(sort: Desc)])
+  @@index([actorUserId, occurredAt(sort: Desc)])
+  @@index([entityType, entityId])
+  @@index([action, occurredAt(sort: Desc)])
+}
+
+/// Client-supplied de-duplication key for report submission. Keeps a retry after
+/// a dropped connection from creating a second report.
+model IdempotencyKey {
+  key           String   @id @db.VarChar(128)
+  scope         String   @db.VarChar(60)
+  /// SHA-256 of the request body; a mismatched replay is rejected.
+  requestHash   String   @db.Char(64)
+  responseBody  Json?
+  statusCode    Int?
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+
+  @@index([expiresAt])
+}
+
+/// Marks a report row as pinned by an active RESTRICTION privacy request, so
+/// the retention job skips it. Implemented as a column rather than inferred
+/// from a join so the purge query stays a single indexed scan.
+model LegalHold {
+  id        String   @id @default(uuid()) @db.Uuid
+  reportId  String   @db.Uuid
+  privacyRequestId String? @db.Uuid
+  reason    String   @db.VarChar(300)
+  placedById String? @db.Uuid
+  releasedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([reportId, releasedAt])
+}

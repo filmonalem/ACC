@@ -1,0 +1,34 @@
+{
+  "name": "acc-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Adigrat Community Connect — resident site and staff dashboard",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "next dev --port 3005",
+    "build": "next build",
+    "start": "next start --port 3005",
+    "typecheck": "echo \"No TypeScript step: the frontend is JavaScript by design. `npm run build` is the gate.\"",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "npm run build && npm run test"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "5.9.1",
+    "lucide-react": "0.460.0",
+    "next": "15.3.9",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-hook-form": "7.90.0",
+    "server-only": "^0.0.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "tailwindcss": "4.3.3",
+    "vitest": "3.2.7"
+  }
+}
